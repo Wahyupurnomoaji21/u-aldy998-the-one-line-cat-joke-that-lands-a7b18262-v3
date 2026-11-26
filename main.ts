@@ -20,7 +20,7 @@
 //   * 1–200 characters after trimming,
 //   * the file on disk must byte-match the joke plus one trailing newline.
 
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -33,6 +33,11 @@ const JOKE_LINES = [
 const MAX_ENTRY_CHARS = 200;
 
 function buildEntry(lines: string[]): string {
+  // Every joke line must carry text: an empty line would silently
+  // collapse two beats into one and change the joke's rhythm.
+  for (const [index, line] of lines.entries()) {
+    if (line.trim().length === 0) fail(`joke line ${index + 1} is empty`);
+  }
   const entry = lines.map((line) => line.trim()).join(" ");
   return entry;
 }
@@ -66,7 +71,12 @@ function main(): void {
   mkdirSync(outDir, { recursive: true });
   const outPath = join(outDir, "entry.txt");
   const payload = entry + "\n";
-  writeFileSync(outPath, payload, "utf8");
+  // Atomic write: stage the bytes in a temp file in the same directory,
+  // then rename over entry.txt, so a reader never sees a half-written
+  // entry if the process is interrupted mid-write.
+  const tmpPath = join(outDir, `.entry.txt.tmp-${process.pid}`);
+  writeFileSync(tmpPath, payload, "utf8");
+  renameSync(tmpPath, outPath);
 
   if (!existsSync(outPath)) fail(`could not create ${outPath}`);
   if (statSync(outPath).size !== Buffer.byteLength(payload, "utf8")) {
